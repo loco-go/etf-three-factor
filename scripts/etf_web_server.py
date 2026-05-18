@@ -31,7 +31,7 @@ FLOW_LOCK = threading.Lock()
 FLOW_NO_PROXY_DOMAINS = ["push2.eastmoney.com"]
 TENCENT_NO_PROXY_DOMAINS = ["web.ifzq.gtimg.cn"]
 HOURLY_FLOW_CACHE = {}
-HOURLY_FLOW_CACHE_SECONDS = 300
+HOURLY_FLOW_CACHE_SECONDS = 30
 
 
 def validate_date(value):
@@ -243,6 +243,8 @@ def build_flow_payload(date_value, allow_fetch=True):
 
 def tencent_symbol(code):
     code = str(code).strip()
+    if code.startswith(("sh", "sz")):
+        return code
     prefix = "sz" if code.startswith(("15", "16", "18")) else "sh"
     return f"{prefix}{code}"
 
@@ -261,7 +263,7 @@ def fetch_tencent_minute_day(code, date_value):
     container = (payload.get("data") or {}).get(symbol) or {}
     for item in container.get("data") or []:
         if str(item.get("date")) == date_key:
-            return item.get("data") or [], item.get("prec")
+            return item.get("data") or [], item.get("prec"), str(item.get("date"))
 
     # When the selected analysis day is the latest session, minute/query is usually smaller and fresher.
     url = f"http://web.ifzq.gtimg.cn/appstock/app/minute/query?code={symbol}"
@@ -270,8 +272,8 @@ def fetch_tencent_minute_day(code, date_value):
     payload = response.json()
     data_block = ((payload.get("data") or {}).get(symbol) or {}).get("data") or {}
     if str(data_block.get("date")) == date_key:
-        return data_block.get("data") or [], data_block.get("prec")
-    return [], None
+        return data_block.get("data") or [], data_block.get("prec"), str(data_block.get("date"))
+    return [], None, None
 
 
 def minute_label(raw_time):
@@ -336,6 +338,58 @@ def build_etf_flow_points(minute_rows, preclose):
     return points
 
 
+def parse_minute_row(raw):
+    parts = str(raw).split()
+    if len(parts) < 4:
+        return None
+    try:
+        return {
+            "time": parts[0],
+            "price": float(parts[1]),
+            "amount": float(parts[3]),
+        }
+    except ValueError:
+        return None
+
+
+def fetch_market_indices(date_value):
+    indices = [
+        ("sh000001", "上证"),
+        ("sz399001", "深证"),
+        ("sz399006", "创业板"),
+    ]
+    result = []
+    for code, name in indices:
+        try:
+            rows, preclose, source_date = fetch_tencent_minute_day(code, date_value)
+            parsed = [row for row in (parse_minute_row(raw) for raw in rows) if row]
+            latest = parsed[-1] if parsed else None
+            preclose_value = float(preclose or 0)
+            pct = ((latest["price"] - preclose_value) / preclose_value * 100) if latest and preclose_value > 0 else None
+            result.append({
+                "code": code,
+                "name": name,
+                "pct": round(pct, 2) if pct is not None else None,
+                "price": round(latest["price"], 2) if latest else None,
+                "amount_yi": round((latest["amount"] or 0) / 1e8, 1) if latest else None,
+                "time": minute_label(latest["time"]) if latest else None,
+                "source_date": source_date,
+                "status": "ok" if latest else "empty",
+            })
+        except Exception as exc:
+            result.append({
+                "code": code,
+                "name": name,
+                "pct": None,
+                "price": None,
+                "amount_yi": None,
+                "time": None,
+                "source_date": None,
+                "status": f"error: {exc}",
+            })
+    return result
+
+
 def build_hourly_flow_payload(date_value):
     report.refresh_custom_etfs()
     cache_key = (date_value, tuple(report.ETFS.keys()))
@@ -350,9 +404,10 @@ def build_hourly_flow_payload(date_value):
     ]
     series = []
     errors = []
+    market_indices = fetch_market_indices(date_value)
     for idx, (code, info) in enumerate(report.ETFS.items()):
         try:
-            rows, preclose = fetch_tencent_minute_day(code, date_value)
+            rows, preclose, source_date = fetch_tencent_minute_day(code, date_value)
             points = build_etf_flow_points(rows, preclose)
         except Exception as exc:
             errors.append({"code": code, "error": str(exc)})
@@ -367,6 +422,7 @@ def build_hourly_flow_payload(date_value):
             "color": colors[idx % len(colors)],
             "points": points,
             "latest": latest,
+            "source_date": source_date,
         })
 
     values = [point["value"] for item in series for point in item["points"]]
@@ -376,12 +432,29 @@ def build_hourly_flow_payload(date_value):
         reverse=True,
     )
     max_frames = max([len(item["points"]) for item in series], default=0)
+    status = "ok"
+    message = ""
+    if not series:
+        status = "empty_today" if is_today(date_value) else "empty_history"
+        if is_today(date_value):
+            message = "当天分钟线尚未产生。盘前看不到实时资金流；开盘后会显示截至当前分钟的数据。"
+        else:
+            message = "该日期没有可用的ETF分钟资金流数据。"
+    elif is_today(date_value):
+        status = "realtime"
+        message = "盘中展示截至当前分钟的ETF方向性成交额。"
+    else:
+        status = "history"
+        message = "历史交易日展示该日分钟线回放。"
     payload = {
         "date": date_value,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "unit": "亿",
         "source": "tencent-minute",
         "source_label": "腾讯分钟线 · 半小时采样 · 方向性成交额",
+        "status": status,
+        "message": message,
+        "market_indices": market_indices,
         "series": series,
         "errors": errors,
         "summary": {

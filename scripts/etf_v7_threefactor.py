@@ -960,7 +960,13 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
 .flow-tools button{{height:30px;border:0;border-radius:6px;background:#38bdf8;color:#07111f;font-weight:700;font-size:12px;padding:0 12px;cursor:pointer}}
 .flow-tools button.alt{{background:#24344f;color:#cbd5e1;border:1px solid rgba(148,163,184,0.16)}}
 .flow-panel-bd{{flex:1;display:grid;grid-template-columns:1fr 260px;gap:14px;padding:14px;min-height:0}}
-.flow-stage{{position:relative;min-width:0;border:1px solid rgba(56,189,248,0.1);border-radius:8px;background:rgba(8,14,26,0.5);overflow:hidden}}
+.flow-visual{{min-width:0;min-height:0;display:flex;flex-direction:column;gap:8px}}
+.flow-market{{min-height:42px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}
+.flow-index{{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid rgba(56,189,248,0.1);border-radius:8px;background:rgba(8,14,26,0.34);padding:7px 10px;min-width:0}}
+.flow-index .nm{{font-size:12px;font-weight:800;color:#dbeafe;white-space:nowrap}}
+.flow-index .pct{{font-size:14px;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}}
+.flow-index .tm{{font-size:10px;color:#64748b;margin-top:2px;text-align:right;white-space:nowrap}}
+.flow-stage{{position:relative;flex:1;min-width:0;min-height:0;border:1px solid rgba(56,189,248,0.1);border-radius:8px;background:rgba(8,14,26,0.5);overflow:hidden}}
 .flow-stage svg{{display:block;width:100%;height:100%}}
 .flow-empty{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:#64748b;font-size:13px;line-height:1.6;padding:40px}}
 .flow-axis{{stroke:rgba(148,163,184,0.34);stroke-width:1}}
@@ -1106,8 +1112,11 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
       </div>
     </div>
     <div class="flow-panel-bd">
-      <div id="flowStage" class="flow-stage">
-        <div class="flow-empty">点击“播放”查看资金流历史走势</div>
+      <div class="flow-visual">
+        <div id="flowMarketBar" class="flow-market"></div>
+        <div id="flowStage" class="flow-stage">
+          <div class="flow-empty">点击“播放”查看资金流历史走势</div>
+        </div>
       </div>
       <div id="flowRank" class="flow-side">
         <h3>当前排行</h3>
@@ -1133,6 +1142,7 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
   const closeBtn = document.getElementById("flowCloseBtn");
   const playBtn = document.getElementById("flowPlayBtn");
   const reloadBtn = document.getElementById("flowReloadBtn");
+  const marketBar = document.getElementById("flowMarketBar");
   const stage = document.getElementById("flowStage");
   const rank = document.getElementById("flowRank");
   const meta = document.getElementById("flowModalMeta");
@@ -1161,6 +1171,31 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
   function renderEmpty(text) {{
     stage.innerHTML = '<div class="flow-empty">' + text + '</div>';
     rank.innerHTML = '<h3>当前排行</h3>';
+  }}
+
+  function pctText(value) {{
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return "--";
+    const num = Number(value);
+    return (num > 0 ? "+" : "") + num.toFixed(2) + "%";
+  }}
+
+  function pctColor(value) {{
+    const num = Number(value);
+    if (!Number.isFinite(num)) return "#64748b";
+    return num >= 0 ? "#ef4444" : "#10b981";
+  }}
+
+  function renderMarket(payload) {{
+    const items = (payload && payload.market_indices) || [];
+    if (!items.length) {{
+      marketBar.innerHTML = '<div class="flow-index"><span class="nm">上证</span><span class="pct" style="color:#64748b">--</span></div><div class="flow-index"><span class="nm">深证</span><span class="pct" style="color:#64748b">--</span></div><div class="flow-index"><span class="nm">创业板</span><span class="pct" style="color:#64748b">--</span></div>';
+      return;
+    }}
+    marketBar.innerHTML = items.map(item => {{
+      const color = pctColor(item.pct);
+      const sub = item.time ? item.time : "暂无";
+      return '<div class="flow-index"><span class="nm">' + htmlEscape(item.name) + '</span><div><div class="pct" style="color:' + color + '">' + pctText(item.pct) + '</div><div class="tm">' + htmlEscape(sub) + '</div></div></div>';
+    }}).join("");
   }}
 
   function seriesPoint(item, frameIndex) {{
@@ -1273,13 +1308,15 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
     const series = payload.series || [];
     const total = maxFrame(payload);
     if (!series.length || total < 0) {{
-      renderEmpty("暂无该日期的ETF分钟资金流数据");
+      renderMarket(payload);
+      renderEmpty(payload.message || "暂无该日期的ETF分钟资金流数据");
       frameText.textContent = "0/0";
       frameRange.max = 0;
       frameRange.value = 0;
       cacheText.textContent = payload.source || "无数据";
       return;
     }}
+    renderMarket(payload);
     const frameValue = Math.max(0, Math.min(total, Number(visibleFrame) || 0));
     const frameFloor = Math.floor(frameValue);
     const frameFrac = frameValue - frameFloor;
