@@ -488,7 +488,10 @@ def capture_report(date_value):
     old_use_kline_cache = os.environ.get("ETF_USE_KLINE_CACHE")
     os.environ["ETF_SKIP_BACKFILL"] = "1"
     os.environ["ETF_SKIP_LIVE_SHARES"] = "1"
-    os.environ["ETF_USE_KLINE_CACHE"] = "1"
+    if date_value and is_today(date_value):
+        os.environ["ETF_USE_KLINE_CACHE"] = "0"
+    else:
+        os.environ["ETF_USE_KLINE_CACHE"] = "1"
     try:
         with contextlib.redirect_stdout(io.StringIO()):
             return report.main(target_date=date_value)

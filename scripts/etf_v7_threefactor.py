@@ -703,7 +703,11 @@ def gen_html(all_hist, latest_map, idx_300_data, shares_data, target_date):
         for h in hh:
             dates.add(h["d"])
     dates = sorted(dates)
-    primary_date = target_date if target_date in dates else dates[-1]
+    primary_date = target_date if target_date in dates else (dates[-1] if dates else target_date)
+    view_date = target_date or primary_date
+    date_caption = f"分析日: {view_date}"
+    if view_date and primary_date and view_date != primary_date:
+        date_caption += f" · 表格基准: {primary_date}"
     etf_count = len(ETFS)
 
     primary = {}
@@ -728,7 +732,7 @@ def gen_html(all_hist, latest_map, idx_300_data, shares_data, target_date):
         for d in idx_300_data:
             idx_300_hist[d["date"]] = d
     idx_gain = 0
-    if primary_date in idx_300_hist:
+    if primary_date in idx_300_hist and primary_date in dates:
         pd = idx_300_hist[primary_date]
         prev_d = dates.index(primary_date) > 0 and dates[dates.index(primary_date) - 1]
         if prev_d and prev_d in idx_300_hist:
@@ -1010,7 +1014,7 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
     <span class="sub">{esc(model_desc)}</span>
   </div>
   <div class="meta">
-    <div><span class="dot"></span>分析日: {esc(primary_date)}</div>
+    <div><span class="dot"></span>{esc(date_caption)}</div>
     <div>{datetime.now().strftime("%Y-%m-%d %H:%M")} · v7</div>
   </div>
 </div>
@@ -1018,7 +1022,7 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
 <div class="controls">
   <form class="ctrl-form compact" method="get" action="/">
     <label for="date">日期查询</label>
-    <input id="date" type="date" name="date" value="{esc(primary_date)}">
+    <input id="date" type="date" name="date" value="{esc(view_date)}">
     <button type="submit">查询</button>
     <button type="button" id="flowReplayBtn" class="flow-btn">资金流回放</button>
     <span class="ctrl-hint">{etf_count}只ETF</span>
@@ -1028,7 +1032,7 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
     <input id="code" name="code" inputmode="numeric" pattern="\\d{{6}}" maxlength="6" placeholder="代码" required>
     <input name="name" placeholder="ETF名称" required>
     <select name="idx">{idx_options}</select>
-    <input type="hidden" name="return_date" value="{esc(primary_date)}">
+    <input type="hidden" name="return_date" value="{esc(view_date)}">
     <button class="secondary" type="submit">新增并刷新</button>
   </form>
 </div>
@@ -1103,7 +1107,7 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
     <div class="flow-panel-hd">
       <div>
         <div id="flowModalTitle" class="flow-title">资金流曲线回放</div>
-        <div id="flowModalMeta" class="flow-meta">真实数据 · ETF分钟线 · 半小时采样 · 方向性成交额 · {esc(primary_date)}</div>
+        <div id="flowModalMeta" class="flow-meta">真实数据 · ETF分钟线 · 半小时采样 · 方向性成交额 · {esc(view_date)}</div>
       </div>
       <div class="flow-tools">
         <button id="flowPlayBtn" type="button">播放</button>
@@ -1136,7 +1140,7 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
 
 <script>
 (function() {{
-  const flowDate = "{esc(primary_date)}";
+  const flowDate = "{esc(view_date)}";
   const openBtn = document.getElementById("flowReplayBtn");
   const modal = document.getElementById("flowModal");
   const closeBtn = document.getElementById("flowCloseBtn");
@@ -1850,7 +1854,7 @@ def main(target_date=None, do_send=False, record_only=False):
 
     # 7. 生成HTML (原step 6)
     print(f"\n🎨 Step 7: 生成三因子HTML报告 (分析日: {actual_date})...")
-    html = gen_html(all_hist, latest_map, idx_300, target_shares_data, actual_date or "")
+    html = gen_html(all_hist, latest_map, idx_300, target_shares_data, target_date or actual_date or "")
     with open(THREE_FACTOR_HTML, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"  ✅ {THREE_FACTOR_HTML} ({len(html)} bytes)")
