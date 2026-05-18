@@ -363,17 +363,28 @@ def fetch_market_indices(date_value):
         try:
             rows, preclose, source_date = fetch_tencent_minute_day(code, date_value)
             parsed = [row for row in (parse_minute_row(raw) for raw in rows) if row]
-            latest = parsed[-1] if parsed else None
             preclose_value = float(preclose or 0)
-            pct = ((latest["price"] - preclose_value) / preclose_value * 100) if latest and preclose_value > 0 else None
+            points = []
+            for idx, row in enumerate(parsed):
+                if not should_keep_minute(row["time"], idx, len(parsed)):
+                    continue
+                pct = ((row["price"] - preclose_value) / preclose_value * 100) if preclose_value > 0 else None
+                points.append({
+                    "time": minute_label(row["time"]),
+                    "pct": round(pct, 2) if pct is not None else None,
+                    "price": round(row["price"], 2),
+                    "amount_yi": round((row["amount"] or 0) / 1e8, 1),
+                })
+            latest = points[-1] if points else None
             result.append({
                 "code": code,
                 "name": name,
-                "pct": round(pct, 2) if pct is not None else None,
-                "price": round(latest["price"], 2) if latest else None,
-                "amount_yi": round((latest["amount"] or 0) / 1e8, 1) if latest else None,
-                "time": minute_label(latest["time"]) if latest else None,
+                "pct": latest.get("pct") if latest else None,
+                "price": latest.get("price") if latest else None,
+                "amount_yi": latest.get("amount_yi") if latest else None,
+                "time": latest.get("time") if latest else None,
                 "source_date": source_date,
+                "points": points,
                 "status": "ok" if latest else "empty",
             })
         except Exception as exc:

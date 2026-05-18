@@ -1185,16 +1185,18 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
     return num >= 0 ? "#ef4444" : "#10b981";
   }}
 
-  function renderMarket(payload) {{
+  function renderMarket(payload, visibleFrame) {{
     const items = (payload && payload.market_indices) || [];
     if (!items.length) {{
       marketBar.innerHTML = '<div class="flow-index"><span class="nm">上证</span><span class="pct" style="color:#64748b">--</span></div><div class="flow-index"><span class="nm">深证</span><span class="pct" style="color:#64748b">--</span></div><div class="flow-index"><span class="nm">创业板</span><span class="pct" style="color:#64748b">--</span></div>';
       return;
     }}
     marketBar.innerHTML = items.map(item => {{
-      const color = pctColor(item.pct);
-      const sub = item.time ? item.time : "暂无";
-      return '<div class="flow-index"><span class="nm">' + htmlEscape(item.name) + '</span><div><div class="pct" style="color:' + color + '">' + pctText(item.pct) + '</div><div class="tm">' + htmlEscape(sub) + '</div></div></div>';
+      const point = pointAt(item, visibleFrame);
+      const pct = point ? point.pct : item.pct;
+      const color = pctColor(pct);
+      const sub = point && point.time ? point.time : (item.time || "暂无");
+      return '<div class="flow-index"><span class="nm">' + htmlEscape(item.name) + '</span><div><div class="pct" style="color:' + color + '">' + pctText(pct) + '</div><div class="tm">' + htmlEscape(sub) + '</div></div></div>';
     }}).join("");
   }}
 
@@ -1233,6 +1235,8 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
         value: valueOf(left, "value", 0),
         net: valueOf(left, "net", 0),
         price: valueOf(left, "price", 0),
+        pct: valueOf(left, "pct", null),
+        amount_yi: valueOf(left, "amount_yi", 0),
       }};
     }}
     return {{
@@ -1240,6 +1244,8 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
       value: lerp(valueOf(left, "value", 0), valueOf(right, "value", 0), t),
       net: lerp(valueOf(left, "net", 0), valueOf(right, "net", 0), t),
       price: lerp(valueOf(left, "price", 0), valueOf(right, "price", 0), t),
+      pct: lerp(valueOf(left, "pct", 0), valueOf(right, "pct", 0), t),
+      amount_yi: lerp(valueOf(left, "amount_yi", 0), valueOf(right, "amount_yi", 0), t),
     }};
   }}
 
@@ -1308,7 +1314,7 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
     const series = payload.series || [];
     const total = maxFrame(payload);
     if (!series.length || total < 0) {{
-      renderMarket(payload);
+      renderMarket(payload, 0);
       renderEmpty(payload.message || "暂无该日期的ETF分钟资金流数据");
       frameText.textContent = "0/0";
       frameRange.max = 0;
@@ -1316,8 +1322,8 @@ body::before{{content:'';position:absolute;inset:0;background-image:radial-gradi
       cacheText.textContent = payload.source || "无数据";
       return;
     }}
-    renderMarket(payload);
     const frameValue = Math.max(0, Math.min(total, Number(visibleFrame) || 0));
+    renderMarket(payload, frameValue);
     const frameFloor = Math.floor(frameValue);
     const frameFrac = frameValue - frameFloor;
     framePosition = frameValue;
